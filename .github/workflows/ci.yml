@@ -1,0 +1,74 @@
+name: CI - Validate AndroidForge
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - '.github/workflows/ci.yml'
+      - 'scripts/**'
+      - 'config/**'
+      - 'Dockerfile.android'
+      - 'README.md'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - '.github/workflows/ci.yml'
+      - 'scripts/**'
+      - 'config/**'
+      - 'Dockerfile.android'
+      - 'README.md'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate Python scripts & YAML config
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f scripts/requirements.txt ]; then python -m pip install -r scripts/requirements.txt; fi
+
+      - name: Check Python syntax
+        run: |
+          python -m compileall scripts || (echo "Python syntax errors" && false)
+
+      - name: Verify required files exist
+        run: |
+          test -f config/toolchain-rules.yaml || (echo "Missing config/toolchain-rules.yaml" && false)
+          test -f Dockerfile.android || (echo "Missing Dockerfile.android" && false)
+          test -f README.md || (echo "Missing README.md" && false)
+          echo "Required files present."
+
+      - name: Validate YAML (toolchain-rules.yaml)
+        run: |
+          python - <<'PY'
+          import sys, pathlib, yaml
+          p = pathlib.Path("config/toolchain-rules.yaml")
+          if not p.exists():
+              print("ERROR: config/toolchain-rules.yaml not found"); sys.exit(2)
+          with p.open("r", encoding="utf-8") as f:
+              try:
+                  data = yaml.safe_load(f)
+              except Exception as e:
+                  print("YAML parse error:", e); sys.exit(2)
+          if not isinstance(data, dict):
+              print("YAML root must be a mapping/object"); sys.exit(2)
+          print("YAML validation OK. Top keys:", list(data.keys())[:10])
+          PY
+
+      - name: Lint workflow (optional)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.info("Workflow file present: .github/workflows/ci.yml")
